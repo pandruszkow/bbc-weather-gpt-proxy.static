@@ -60,6 +60,7 @@ LEVEN_ID = 2644577
 location_id = LEVEN_ID  # This is the number you mentioned as a parameter
 weather_data = grab_weather_data(location_id)
 
+print(f"launching weather data refresh on date {today}")
 print(get_interested_forecast_daterange())
 
 if weather_data:
