@@ -41,7 +41,7 @@ def parse_weather_data(raw):
     debug(json.dumps(forecasts, indent=1))
 
 def extract_and_flatten_forecast_objects(raw):
-    dates_to_scan = get_interested_forecast_daterange()a
+    dates_to_scan = get_interested_forecast_daterange()
     
     extracted_data = {}
     for date in dates_to_scan:
