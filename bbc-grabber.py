@@ -56,7 +56,7 @@ def extract_and_flatten_forecast_objects(raw):
             if forecast_date not in get_interested_forecast_daterange():
                 break
             else:
-                debprint(f"DEBUG: forecast for date {forecast_date} falls within interested daterange, processing")
+                debug(f"DEBUG: forecast for date {forecast_date} falls within interested daterange, processing", "per_item_parsing")
 
             # Identify a weather forecast by concatenating the local date and time slot
             key = f"{forecast_date}T{forecast_time}"
