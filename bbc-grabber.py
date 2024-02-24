@@ -28,8 +28,8 @@ def parse_weather_data(json):
 
 def extract_and_flatten_forecast_objects(json):
     extracted_data = {}
+    processing_limit = 6 + 24 + 24 # We want to only grab data up to 05:59 today + the next 48 hours. No sense grabbing more than that.a
     for forecast in json['forecasts']:
-        processing_limit = 6 + 24 + 24 # We want to only grab data up to 05:59 today + the next 48 hours. No sense grabbing more than that.
         for report in forecast['detailed']["reports"][0:2]:
             # Create a new key for the current report by concatenating the local date and time slot
             key = f"{report['localDate']}T{report['timeslot']}"
