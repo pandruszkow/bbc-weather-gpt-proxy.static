@@ -66,7 +66,7 @@ def extract_and_flatten_forecast_objects(raw):
             # Add the current report to the extracted data dictionary with the new key
             extracted_data[forecast_date][forecast_time] = report
             
-    return extracted_dataa
+    return extracted_data
         
 
 LEVEN_ID = 2644577
