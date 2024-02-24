@@ -6,7 +6,7 @@ today = date.today()
 def get_interested_forecast_daterange():
     dates = [ today, today + timedelta(days=1), today + timedelta(days=2) ]
 
-    return [date_item.strftime("%Y-%m-%d") for date_item in date_list]
+    return [date_item.strftime("%Y-%m-%d") for date_item in dates]
 
 def grab_weather_data(location_id):
     # Construct the URL with the given location ID
