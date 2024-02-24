@@ -31,8 +31,8 @@ def parse_weather_data(json):
     print(f"Human readable location: { hr_location }")
     print("next 48 hours")
     forecasts = extract_and_flatten_forecast_objects(json)
-    forecasts = forecasts
     print(f"forecasts for: { forecasts.keys() }")
+    print(json.dumps(forecasts, indent=1))
 
 def extract_and_flatten_forecast_objects(json):
     extracted_data = {}
