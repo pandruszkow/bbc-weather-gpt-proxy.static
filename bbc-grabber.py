@@ -3,6 +3,11 @@ from datetime import date, timedelta
 import json
 
 today = date.today()
+debug_print_exclude = ["per_item_parsing"]
+def debug(text, classification="generic"):
+    if classification not in debug_print_exclude:
+        print(f"DEBUG category={classification}, Message: {text}")
+
 
 def get_interested_forecast_daterange():
     dates = [ today, today + timedelta(days=1), today + timedelta(days=2) ]
@@ -15,6 +20,7 @@ def grab_weather_data(location_id):
 
     try:
         # Grab weather for location ID
+        debug(f"Grabbing weather data, GET method {url}", "weather_api_url_get")
         response = requests.get(url)
         # Crash if error
         response.raise_for_status()
@@ -30,13 +36,12 @@ def grab_weather_data(location_id):
 def parse_weather_data(raw):
     hr_location = raw["location"]["name"]
     print(f"Human readable location: { hr_location }")
-    print("next 48 hours")
     forecasts = extract_and_flatten_forecast_objects(raw)
-    print(f"forecasts for: { forecasts.keys() }")
-    print(json.dumps(forecasts, indent=1))
+    debug(f"forecasts for: { forecasts.keys() }")
+    debug(json.dumps(forecasts, indent=1))
 
 def extract_and_flatten_forecast_objects(raw):
-    dates_to_scan = get_interested_forecast_daterange()
+    dates_to_scan = get_interested_forecast_daterange()a
     
     extracted_data = {}
     for date in dates_to_scan:
@@ -51,7 +56,7 @@ def extract_and_flatten_forecast_objects(raw):
             if forecast_date not in get_interested_forecast_daterange():
                 break
             else:
-                print(f"DEBUG: forecast for date {forecast_date} falls within interested daterange, processing")
+                debprint(f"DEBUG: forecast for date {forecast_date} falls within interested daterange, processing")
 
             # Identify a weather forecast by concatenating the local date and time slot
             key = f"{forecast_date}T{forecast_time}"
