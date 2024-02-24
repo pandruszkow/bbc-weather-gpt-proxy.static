@@ -1,5 +1,6 @@
 import requests
 from datetime import date, timedelta
+import json
 
 today = date.today()
 
@@ -26,18 +27,18 @@ def grab_weather_data(location_id):
         print(f"Error while fetching weather data: {e}")
         return None
 
-def parse_weather_data(json):
-    hr_location = json["location"]["name"]
+def parse_weather_data(raw):
+    hr_location = raw["location"]["name"]
     print(f"Human readable location: { hr_location }")
     print("next 48 hours")
-    forecasts = extract_and_flatten_forecast_objects(json)
+    forecasts = extract_and_flatten_forecast_objects(raw)
     print(f"forecasts for: { forecasts.keys() }")
     print(json.dumps(forecasts, indent=1))
 
-def extract_and_flatten_forecast_objects(json):
+def extract_and_flatten_forecast_objects(raw):
     extracted_data = {}
     
-    for forecast in json['forecasts']:
+    for forecast in raw['forecasts']:
         for report in forecast['detailed']["reports"]:
             # Only process if it's a date we're interested in
             forecast_date = report['localDate']
