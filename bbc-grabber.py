@@ -39,7 +39,7 @@ def extract_and_flatten_forecast_objects(json):
             extracted_data[key] = report
             
             # if we're beyond the point of stopping processing, stop the parsing loop
-            --processing_limit
+            processing_limit -= 1
             print(f"remaining {processing_limit} entries before cutoff")
             if processing_limit <= 0:
                 break
