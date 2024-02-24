@@ -21,13 +21,13 @@ jobs:
         run: python bbc-grabber.py  # Replace with your script name
         env:
           OUTPUT_DIR: "output"  # Directory to store output files
-      - name: Archive output files
-        uses: actions/upload-artifact@v2
-        with:
-          name: output-files
-          path: ${{ env.OUTPUT_DIR }}  # Upload files from the specified directory
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          publish_branch: gh-pages  # Target branch for deploying output
-          deploy_key: ${{ secrets.DEPLOY_KEY }}  # Replace with your deployment key
+      #- name: Archive output files
+      #  uses: actions/upload-artifact@v2
+      #  with:
+      #    name: output-files
+      #    path: ${{ env.OUTPUT_DIR }}  # Upload files from the specified directory
+      #- name: Deploy to GitHub Pages
+      #  uses: peaceiris/actions-gh-pages@v3
+      #  with:
+      #    publish_branch: gh-pages  # Target branch for deploying output
+      #   deploy_key: ${{ secrets.DEPLOY_KEY }}  # Replace with your deployment key

@@ -21,6 +21,9 @@ def grab_weather_data(location_id):
 def parse_weather_data(json):
     hr_location = json["location"]["name"]
     print(f"Human readable location: { hr_location }")
+    print("next 48 hours")
+    forecasts = extract_and_flatten_forecast_objects(json)
+    print(f"forecasts for: { forecasts.keys() }")
 
 def extract_and_flatten_forecast_objects(json):
     extracted_data = {}
