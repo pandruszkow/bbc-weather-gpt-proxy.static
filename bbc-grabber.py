@@ -1,10 +1,10 @@
 import requests
 from datetime import date, timedelta
 
+today = date.today()
 
 def get_interested_forecast_daterange():
-    dates = [ date.today(), today + timedelta(days=1), today + timedelta(days=2) ]
-    date_list = [today.strftime("%Y-%m-%d"), tomorrow.strftime("%Y-%m-%d"), day_after_tomorrow.strftime("%Y-%m-%d")]
+    dates = [ today, today + timedelta(days=1), today + timedelta(days=2) ]
 
     return [date_item.strftime("%Y-%m-%d") for date_item in date_list]
 
