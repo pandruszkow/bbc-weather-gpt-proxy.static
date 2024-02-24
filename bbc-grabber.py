@@ -38,7 +38,7 @@ def extract_and_flatten_forecast_objects(json):
     extracted_data = {}
     
     for forecast in json['forecasts']:
-        for report in forecast['detailed']["reports"][0:2]:
+        for report in forecast['detailed']["reports"]:
             # Only process if it's a date we're interested in
             forecast_date = report['localDate']
             if forecast_date not in get_interested_forecast_daterange():
