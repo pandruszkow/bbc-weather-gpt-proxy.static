@@ -36,23 +36,30 @@ def parse_weather_data(raw):
     print(json.dumps(forecasts, indent=1))
 
 def extract_and_flatten_forecast_objects(raw):
+    dates_to_scan = get_interested_forecast_daterange()
+    
     extracted_data = {}
+    for date in dates_to_scan:
+        extracted_data[date] = {}
     
     for forecast in raw['forecasts']:
         for report in forecast['detailed']["reports"]:
             # Only process if it's a date we're interested in
             forecast_date = report['localDate']
+            forecast_time = report['timeslot']
+
             if forecast_date not in get_interested_forecast_daterange():
                 break
             else:
                 print(f"DEBUG: forecast for date {forecast_date} falls within interested daterange, processing")
 
             # Identify a weather forecast by concatenating the local date and time slot
-            key = f"{forecast_date}T{report['timeslot']}"
+            key = f"{forecast_date}T{forecast_time}"
+            report["forecast_ID"] = key
             print(f"processing slot {key}")
 
             # Add the current report to the extracted data dictionary with the new key
-            extracted_data[key] = report
+            extracted_data[forecast_date][forecast_time] = report
             
     return extracted_data
         
