@@ -61,12 +61,12 @@ def extract_and_flatten_forecast_objects(raw):
             # Identify a weather forecast by concatenating the local date and time slot
             key = f"{forecast_date}T{forecast_time}"
             report["forecast_ID"] = key
-            print(f"processing slot {key}")
+            debug(f"processing slot {key}", "per_item_parsing")
 
             # Add the current report to the extracted data dictionary with the new key
             extracted_data[forecast_date][forecast_time] = report
             
-    return extracted_data
+    return extracted_dataa
         
 
 LEVEN_ID = 2644577
