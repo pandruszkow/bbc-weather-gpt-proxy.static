@@ -27,7 +27,7 @@ def parse_weather_data(json):
 
 def extract_and_flatten_forecast_objects(json):
     extracted_data = {}
-    for forecast in data['forecasts']:
+    for forecast in jsona['forecasts']:
         # Iterate over the "detailed" list in the current forecast
         for report in forecast['detailed']:
             # Create a new key for the current report by concatenating the local date and time slot
