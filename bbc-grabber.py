@@ -1,4 +1,12 @@
 import requests
+from datetime import date, timedelta
+
+
+def get_interested_forecast_daterange():
+    dates = [ date.today(), today + timedelta(days=1), today + timedelta(days=2) ]
+    date_list = [today.strftime("%Y-%m-%d"), tomorrow.strftime("%Y-%m-%d"), day_after_tomorrow.strftime("%Y-%m-%d")]
+
+    return [date_item.strftime("%Y-%m-%d") for date_item in date_list]
 
 def grab_weather_data(location_id):
     # Construct the URL with the given location ID
@@ -28,22 +36,22 @@ def parse_weather_data(json):
 
 def extract_and_flatten_forecast_objects(json):
     extracted_data = {}
-    processing_limit = 6 + 24 + 24 # We want to only grab data up to 05:59 today + the next 48 hours. No sense grabbing more than that.a
+    
     for forecast in json['forecasts']:
         for report in forecast['detailed']["reports"][0:2]:
-            #FIXME cleanup:a if we're beyond the point of stopping processing, stop the parsing loop
-            if processing_limit <= 0:
+            # Only process if it's a date we're interested in
+            forecast_date = report['localDate']
+            if forecast_date not in get_interested_forecast_daterange():
                 break
-            # Create a new key for the current report by concatenating the local date and time slot
-            key = f"{report['localDate']}T{report['timeslot']}"
+            else:
+                print(f"DEBUG: forecast for date {forecast_date} falls within interested daterange, processing")
+
+            # Identify a weather forecast by concatenating the local date and time slot
+            key = f"{forecast_date}T{report['timeslot']}"
             print(f"processing slot {key}")
 
             # Add the current report to the extracted data dictionary with the new key
             extracted_data[key] = report
-            
-            processing_limit -= 1
-            print(f"remaining {processing_limit} entries before cutoff")
-
             
     return extracted_data
         
@@ -51,6 +59,8 @@ def extract_and_flatten_forecast_objects(json):
 LEVEN_ID = 2644577
 location_id = LEVEN_ID  # This is the number you mentioned as a parameter
 weather_data = grab_weather_data(location_id)
+
+print(get_interested_forecast_daterange())
 
 if weather_data:
     parse_weather_data(weather_data)
