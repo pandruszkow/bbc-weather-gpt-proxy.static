@@ -21,7 +21,19 @@ def grab_weather_data(location_id):
 def parse_weather_data(json):
     hr_location = json["location"]["name"]
     print(f"Human readable location: { hr_location }")
-    
+
+def extract_and_flatten_forecast_objects(json):
+    extracted_data = {}
+    for forecast in data['forecasts']:
+        # Iterate over the "detailed" list in the current forecast
+        for report in forecast['detailed']:
+            # Create a new key for the current report by concatenating the local date and time slot
+            key = f"{report['localdate']}T{report['timeslot']}"
+
+            # Add the current report to the extracted data dictionary with the new key
+            extracted_data[key] = report
+    return extracted_data
+        
 
 LEVEN_ID = 2644577
 location_id = LEVEN_ID  # This is the number you mentioned as a parameter
