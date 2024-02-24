@@ -1,7 +1,9 @@
 name: Scheduled script to grab, transform and publish latest weather
 
 on:
-  schedule:
+  workflow_dispatch: # Manual run
+  push: # Repo push
+  schedule: # Regularly to keep weather data up to date
     - cron: "59 */2 * * *"  # Run a refresh every 2 hours
 
 jobs:
