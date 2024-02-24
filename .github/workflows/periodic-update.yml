@@ -1,0 +1,31 @@
+name: Scheduled script to grab, transform and publish latest weather
+
+on:
+  schedule:
+    - cron: "59 */2 * * *"  # Run a refresh every 2 hours
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04  # Replace with the desired runner operating system
+    steps:
+      - uses: actions/checkout@v3  # Checkout the repository
+      - name: Set up Python
+        uses: actions/setup-python@v4  # Configure Python environment
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt  # Install Python dependencies
+      - name: Execute Python script
+        run: python bbc-grabber.py  # Replace with your script name
+        env:
+          OUTPUT_DIR: "output"  # Directory to store output files
+      - name: Archive output files
+        uses: actions/upload-artifact@v2
+        with:
+          name: output-files
+          path: ${{ env.OUTPUT_DIR }}  # Upload files from the specified directory
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          publish_branch: gh-pages  # Target branch for deploying output
+          deploy_key: ${{ secrets.DEPLOY_KEY }}  # Replace with your deployment key
