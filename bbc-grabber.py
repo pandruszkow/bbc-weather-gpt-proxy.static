@@ -33,7 +33,7 @@ def extract_and_flatten_forecast_objects(json):
         for report in forecast['detailed']["reports"]:
             print(f"Report obj: {report}")
             # Create a new key for the current report by concatenating the local date and time slot
-            key = f"{report['localdate']}T{report['timeslot']}"
+            key = f"{report['localDate']}T{report['timeslot']}"
 
             # Add the current report to the extracted data dictionary with the new key
             extracted_data[key] = report
