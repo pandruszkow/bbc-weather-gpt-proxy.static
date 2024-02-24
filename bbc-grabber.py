@@ -31,6 +31,9 @@ def extract_and_flatten_forecast_objects(json):
     processing_limit = 6 + 24 + 24 # We want to only grab data up to 05:59 today + the next 48 hours. No sense grabbing more than that.a
     for forecast in json['forecasts']:
         for report in forecast['detailed']["reports"][0:2]:
+            #FIXME cleanup:a if we're beyond the point of stopping processing, stop the parsing loop
+            if processing_limit <= 0:
+                break
             # Create a new key for the current report by concatenating the local date and time slot
             key = f"{report['localDate']}T{report['timeslot']}"
             print(f"processing slot {key}")
@@ -38,11 +41,9 @@ def extract_and_flatten_forecast_objects(json):
             # Add the current report to the extracted data dictionary with the new key
             extracted_data[key] = report
             
-            # if we're beyond the point of stopping processing, stop the parsing loop
             processing_limit -= 1
             print(f"remaining {processing_limit} entries before cutoff")
-            if processing_limit <= 0:
-                break
+
             
     return extracted_data
         
