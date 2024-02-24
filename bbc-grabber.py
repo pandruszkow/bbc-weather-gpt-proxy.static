@@ -18,9 +18,15 @@ def grab_weather_data(location_id):
         print(f"Error while fetching weather data: {e}")
         return None
 
+def parse_weather_data(json):
+    hr_location = json["location"]["name"]
+    print(f"Human readable location: { hr_location }")
+    
+
 LEVEN_ID = 2644577
 location_id = LEVEN_ID  # This is the number you mentioned as a parameter
 weather_data = grab_weather_data(location_id)
 
 if weather_data:
+    parse_weather_data(weather_data)
     print(weather_data)  # This will print the nested dictionary
