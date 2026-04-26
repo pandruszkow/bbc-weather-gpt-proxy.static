@@ -6,6 +6,7 @@ for LLM consumption. Includes template parsing and field conditioning.
 
 import logging
 import re
+from datetime import date
 from typing import Callable
 
 from data_model import WeatherRecord

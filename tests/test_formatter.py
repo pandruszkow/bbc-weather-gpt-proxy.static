@@ -79,7 +79,7 @@ class TestFormatDateHeader(unittest.TestCase):
         result = format_date_header(target_date, run_date)
         self.assertTrue(result.startswith("Today,"))
         self.assertIn("25th of April", result)
-        self.assertIn("(Friday)", result)
+        self.assertIn("(Saturday)", result)
     
     def test_tomorrow_prefix(self):
         """Next day should get 'Tomorrow,' prefix."""

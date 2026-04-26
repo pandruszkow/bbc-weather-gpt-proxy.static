@@ -93,6 +93,10 @@ def parse_bbc_forecast(raw_data: dict, location_id: int) -> list[WeatherRecord]:
     if 'forecasts' not in raw_data:
         raise KeyError("Missing 'forecasts' key in API response")
     
+    # Empty forecasts array returns empty records list (not an error)
+    if not raw_data['forecasts']:
+        return records
+    
     for forecast in raw_data['forecasts']:
         if 'detailed' not in forecast or 'reports' not in forecast['detailed']:
             continue

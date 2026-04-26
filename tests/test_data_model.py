@@ -20,9 +20,9 @@ class TestWeatherRecord(unittest.TestCase):
             feels_like_c=10,
             weather_type_text="Partly Cloudy",
             precipitation_percent=0,
-            wind_speed_kph=9,
+            wind_speed_kph=0,
         )
-        
+
         self.assertEqual(record.local_date, date(2026, 4, 25))
         self.assertEqual(record.timeslot, "14:00")
         self.assertEqual(record.temperature_c, 12)
@@ -134,8 +134,9 @@ class TestParseBbcForecast(unittest.TestCase):
         """Test parsing response with empty forecasts."""
         response = {"forecasts": []}
         
-        with self.assertRaises(KeyError):
-            parse_bbc_forecast(response, 2644577)
+        # Empty forecasts returns empty list, not an error
+        records = parse_bbc_forecast(response, 2644577)
+        self.assertEqual(records, [])
     
     def test_parse_missing_forecasts_key(self):
         """Test parsing response missing forecasts key."""
