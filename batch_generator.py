@@ -6,10 +6,11 @@ Markdown output files with formatted forecasts.
 
 import logging
 import os
-from datetime import date, datetime, time, timedelta, ZoneInfo
+from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from data_model import WeatherRecord
 from formatter import format_record, format_date_header
