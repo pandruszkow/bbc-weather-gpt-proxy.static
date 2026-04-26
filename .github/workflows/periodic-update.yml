@@ -23,6 +23,11 @@ jobs:
         with:
           python-version: "3.12"
           
+      - name: Set timezone to UK
+        uses: szenius/set-timezone@v2
+        with:
+          timezone: Europe/London
+          
       - name: Install dependencies
         run: pip install -r requirements.txt
         

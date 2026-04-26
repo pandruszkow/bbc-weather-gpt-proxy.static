@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from api_client import fetch_weather_data, APIRetryExhaustedError, APITimeoutError, APIError
-from batch_generator import generate_batch_files
+from batch_generator import generate_batch_files, get_uk_time
 from data_model import parse_bbc_forecast
 
 # Default configuration
@@ -149,7 +149,7 @@ def run_pipeline(
     Returns:
         Exit code (0 for success, 10+N for N failures)
     """
-    run_datetime = datetime.now()
+    run_datetime = get_uk_time()
     
     logger.info(f"Starting pipeline for {len(location_ids)} location(s)")
     logger.info(f"Output directory: {output_dir}")

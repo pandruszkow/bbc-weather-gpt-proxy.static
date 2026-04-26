@@ -5,10 +5,11 @@ Markdown output files with formatted forecasts.
 """
 
 import logging
+import os
+from datetime import date, datetime, time, timedelta, ZoneInfo
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from data_model import WeatherRecord
 from formatter import format_record, format_date_header
@@ -24,15 +25,20 @@ WINDOW_DEFINITIONS = [
 ]
 
 
+def get_uk_time() -> datetime:
+    """Get current time in UK timezone (UTC+0 in winter, UTC+1 in summer)."""
+    uk_tz = ZoneInfo("Europe/London")
+    return datetime.now(uk_tz)
+
+
 def calculate_window_dates(run_datetime: datetime) -> dict[str, tuple[date, date]]:
     """Calculate date ranges for each window based on run time.
     
-    The 06:00 cutoff affects how many additional days are included:
-    - Before/on 06:00: minimum additional days
-    - After 06:00: maximum additional days
+    The 06:00 cutoff affects how many additional days are included.
+    Time is evaluated in UK local time (handles GMT/BST automatically).
     
     Args:
-        run_datetime: When the script is running
+        run_datetime: When the script is running (in UK local time)
         
     Returns:
         Dict mapping window name to (start_date, end_date) inclusive tuples
@@ -41,7 +47,7 @@ def calculate_window_dates(run_datetime: datetime) -> dict[str, tuple[date, date
     run_time = run_datetime.time()
     cutoff_time = time(6, 0)
     
-    # Determine if we're before or after cutoff
+    # Determine if we're before or after cutoff (in UK local time)
     after_cutoff = run_time > cutoff_time
     
     windows = {}
@@ -181,15 +187,25 @@ def generate_batch_files(
         # Filter records for this window
         window_records = filter_records_by_date_range(records, start_date, end_date)
         
-        # Verify we have complete coverage
-        expected_days = (end_date - start_date).days + 1
+        # Verify we have at least today for 24h (permissive - BBC may not have tomorrow yet)
+        # For 3d and 1w, require complete coverage
         actual_days = len(set(r.local_date for r in window_records))
         
-        if actual_days < expected_days:
-            raise ValueError(
-                f"Incomplete data for {window_name}: "
-                f"expected {expected_days} days, got {actual_days}"
-            )
+        if window_name == "24h":
+            # Permissive: at minimum we need today
+            if actual_days < 1:
+                raise ValueError(
+                    f"No data available for {window_name}: "
+                    f"expected at least today's data"
+                )
+        else:
+            # Strict validation for longer windows
+            expected_days = (end_date - start_date).days + 1
+            if actual_days < expected_days:
+                raise ValueError(
+                    f"Incomplete data for {window_name}: "
+                    f"expected {expected_days} days, got {actual_days}"
+                )
         
         # Generate content
         content = generate_markdown_content(window_records, run_date, location_name)
