@@ -32,6 +32,7 @@ jobs:
       - name: Generate weather forecasts
         run: |
           python main.py 2644577
+          python make_index_page.py
         env:
           WEATHER_BATCH_OUTPUT: _output
           
