@@ -111,6 +111,8 @@ Expect {condition_weather_type(weather_type_text)}.
 
 **Rationale for 06:00 cutoff**: Early morning runs (before 06:00) are likely cron jobs seeking "today's forecast." By 06:00, users are awake and planning — they benefit from seeing tomorrow's data too. The cutoff aligns with "everyday data need expectations" rather than being blindly machine-like.
 
+**UK Local Time**: All time-based calculations (06:00 cutoff, window slicing, date headers) use UK local time (`Europe/London` timezone). This correctly handles GMT/BST transitions. GitHub Actions runners use UTC by default; the workflow sets `TZ=Europe/London` to align the runner with the data source timezone.
+
 **Atomic Per-Location Writes**: All batch files for a location succeed or fail together. On any failure (insufficient data, disk error), the location's output directory is left empty. This prevents partial/corrupt data from being consumed downstream.
 
 **Markdown Structure**:
