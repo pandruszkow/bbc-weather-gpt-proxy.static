@@ -4,99 +4,59 @@
 Accepted
 
 ## Context
-The BBC Weather scraper from 2024 needed modernization. The original script (`bbc-grabber.py`) was a monolithic script that mixed concerns: HTTP fetching, JSON parsing, data transformation, and output generation. As the BBC API evolves and requirements expand, this tight coupling became problematic.
+The BBC Weather scraper (originally 2024) needed modernization. The original `bbc-grabber.py` was monolithic, mixing HTTP fetching, JSON parsing, data transformation, and output generation. Key drivers for change:
+- BBC API/HTML changes in 2026
+- Need for resilience (transient failures, rate limits)
+- Need for natural-language output suitable for LLMs (attire, laundry, rain decisions)
+- Need to support multiple locations and temporal windows (24h / 3d / 1w)
 
-Key requirements for the new architecture:
-1. **API resilience**: Handle transient failures, rate limiting (429), and network issues gracefully
-2. **Data model decoupling**: Isolate downstream logic from BBC-specific API structure
-3. **Natural language output**: Generate LLM-friendly text for weather-based decision making (attire, laundry drying, rain likelihood)
-4. **Multiple temporal windows**: Support 24h, 3-day, and 1-week forecast batches
-5. **Multi-location support**: Process multiple locations in parallel
-6. **Atomic operations**: All files for a location succeed or fail together
-7. **Operational clarity**: Clear exit codes, logging, and environment-based configuration
+Key requirements established through discussion:
+1. **API resilience**: handle 429 with Retry-After, exponential backoff with jitter, 5 retries, 5-minute hard timeout per request
+2. **Data model decoupling**: provider-agnostic `WeatherRecord` so new providers only require a new parser function
+3. **Natural language output**: clear, LLM-friendly sentences; template makes conditioning visible: `{conditions_phrase(precipitation_percent, wind_speed_kph)}`
+4. **Temporal windows**: 24h (with 06:00 cutoff), 3d (today + next 3 full days), 1w (today + next 7 full days)
+5. **Multi-location**: parallel processing (classic one-thread-per-location)
+6. **Atomic per-location writes**: all-or-nothing for a location; staged temp file + rename
+7. **Operational clarity**: domain-specific exit codes (10+N for N failed locations), env-based config
 
 ## Decision
+Adopt a **six-layer modular pipeline**:
 
-We will adopt a **modular pipeline architecture** with six distinct layers:
-
-### 1. API Client (`api_client.py`)
-- **Responsibility**: HTTP I/O only
-- **Key features**: 
-  - Exponential backoff with jitter
-  - Special 429 handling (obeys `Retry-After` header)
-  - 5 retries, 5-minute hard timeout per request
-  - Detailed error logging with response dumps on final failure
-
-### 2. Data Model (`data_model.py`)
-- **Responsibility**: Provider-agnostic data representation
-- **Key features**:
-  - Pydantic-based `WeatherRecord` class
-  - BBC-specific parser (`parse_bbc_forecast`)
-  - Validation and type safety
-  - **Swapability**: New provider = new parser function, same output model
-
-### 3. Formatter (`formatter.py`)
-- **Responsibility**: One record → one sentence
-- **Key features**:
-  - Template-based with function call syntax: `{conditions_phrase(precipitation_percent, wind_speed_kph)}`
-  - Four-condition phrase logic for wind/precipitation combinations
-  - Weather type text conditioning with fallback logging
-  - Human-readable date headers with relative prefixes (Today/Tomorrow)
-
-### 4. Batch Generator (`batch_generator.py`)
-- **Responsibility**: Temporal window slicing and Markdown generation
-- **Key features**:
-  - 06:00 cutoff logic for window sizing
-  - Calendar-day grouping with `##` section headers
-  - Complete coverage validation (atomic per-location)
-
-### 5. Output Writer (`output_writer.py`)
-- **Responsibility**: Atomic file persistence
-- **Key features**:
-  - Temp file + rename pattern for atomic writes
-  - Directory creation as needed
-
-### 6. Main / CLI (`main.py`)
-- **Responsibility**: Orchestration and CLI
-- **Key features**:
-  - Thread-per-location parallelism (classic threading, no futures/async)
-  - Environment variable configuration (`WEATHER_BATCH_LOCATION`, `WEATHER_BATCH_OUTPUT`)
-  - Domain-specific exit codes: `10+N` for N failed locations
+1. **api_client.py** — HTTP I/O only. Exponential backoff with jitter; 429 → obey Retry-After; 5 retries; 5-minute hard timeout; detailed error logging with last-response dump.
+2. **data_model.py** — Unified Pydantic `WeatherRecord`. BBC-specific parser `parse_bbc_forecast`. Validation and type safety; swap provider by writing a new parser.
+3. **formatter.py** — One record → one sentence. Template with visible conditioning: `{conditions_phrase(precipitation_percent, wind_speed_kph)}`. Supports known BBC weather types; unknown values fall back to `.lower()` with a warning so LLMs can still reason on them.
+4. **batch_generator.py** — Slice by calendar-day windows using a 06:00 cutoff: before/on 06:00 gives minimal window, after 06:00 gives +1 day. Produces Markdown with `## Date (day)` section headers.
+5. **output_writer.py** — Atomic persistence via temp file + rename; ensures readers never see partial files.
+6. **main.py** — CLI, threading (one thread per location), env var config (`WEATHER_BATCH_LOCATION`, `WEATHER_BATCH_OUTPUT`), exit codes (`10+N` for N failed locations; 126/127 for uv/uvx issues).
 
 ## Consequences
 
 ### Positive
-- **Clear separation of concerns**: Each module has a single, well-defined responsibility
-- **Testability**: Each layer can be unit tested in isolation
-- **Provider swapability**: New weather API = new `api_client.py` + `data_model.py` parser
-- **Operational resilience**: Retry logic, atomic writes, and clear failure modes
-- **LLM-optimized output**: Natural language sentences with structured Markdown sections
+- Clear separation of concerns; each module has a single responsibility
+- Testable in isolation; comprehensive unit tests for data model and formatter
+- Provider swapability: new weather API = new parser + same downstream model
+- Operational resilience and observability (logging, exit codes, atomic writes)
+- LLM-optimized output: natural sentences + Markdown section headers
 
 ### Negative
-- **Increased file count**: 6 Python modules vs. 1 original script
-- **Template parsing complexity**: The `{func_name(var)}` syntax requires regex-based parsing
-- **Thread overhead**: One thread per location may not scale to hundreds of locations (acceptable for expected use case)
+- Increased file count (6 modules vs. 1 script)
+- Regex-based template parsing (`{func_name(var)}`) adds complexity but keeps transformations visible
+- Thread-per-location doesn’t scale to hundreds of locations (acceptable for expected use case)
 
-## Alternatives Considered
-
-### Alternative 1: Asyncio with httpx
-**Rejected**: User explicitly requested "classic" threading. Asyncio adds cognitive overhead and the use case (few locations, I/O-bound) doesn't justify it.
-
-### Alternative 2: Single output file per run
-**Rejected**: Atomic per-location requirement means we need separate directories anyway. Multiple files also let users subscribe to specific temporal windows.
-
-### Alternative 3: Pure text output (no Markdown)
-**Rejected**: Markdown `##` headers provide valuable semantic structure for LLMs parsing the output without requiring rigid machine formats (JSON).
+## Alternatives Considered and Rejected
+- **Asyncio + httpx**: rejected; user requested classic threading for simplicity
+- **Single output file**: rejected; atomic per-location requirement needs isolation anyway
+- **Plain text output**: rejected; Markdown headers add semantic structure for LLMs without rigid machine formats
 
 ## Related Decisions
-
-- **Template syntax**: `{func_name(variable)}` makes data conditioning visible in the template string while keeping transformation logic modular
-- **06:00 cutoff**: Aligns with "everyday data needs" — users running before 06:00 get minimal data, after 06:00 get bonus day
-- **Exit code 10+N**: Allows shell scripts to easily determine how many locations failed without parsing logs
+- Template syntax `{func_name(variable)}` makes data conditioning visible in the template string
+- 06:00 cutoff aligns with "everyday data needs" — before 06:00 truncates, after gives full day
+- Exit code 10+N lets shell scripts easily determine failure count without parsing logs
+- Discovered weather types (`Thick Cloud`, `Sunny`) were added to the mapping dictionary
 
 ## References
-
-- `data_model.py`: Unified record schema
-- `formatter.py`: Natural language templates
-- `batch_generator.py`: Temporal window logic
-- `main.py`: CLI and threading orchestration
+- `data_model.py`: unified record schema + parser
+- `formatter.py`: natural language templates + helpers
+- `batch_generator.py`: temporal slicing + Markdown
+- `main.py`: CLI + threading orchestration
+- `api_client.py`: retry + rate-limit handling
