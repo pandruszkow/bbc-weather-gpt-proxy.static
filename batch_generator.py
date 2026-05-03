@@ -160,7 +160,13 @@ def generate_markdown_content(
     
     lines = []
     
-    # Group by date
+    # Add H1 header with location name
+    if location_name:
+        lines.append(f"# Weather forecast data for {location_name}")
+    else:
+        lines.append("# Weather forecast data")
+    
+    lines.append("")
     by_date = group_records_by_date(records)
     
     for date_key in sorted(by_date.keys()):
