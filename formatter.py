@@ -22,6 +22,7 @@ WEATHER_TYPE_MAPPINGS = {
     "Light Rain Showers": "light rain showers",
     "Thick Cloud": "thick cloud",
     "Sunny": "sunny",
+    "Drizzle": "drizzle",
 }
 
 # Template for single record output

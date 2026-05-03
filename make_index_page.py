@@ -51,7 +51,12 @@ def generate_index(output_dir: Path) -> str:
     if not output_dir.exists():
         return "\n".join(lines + ["  <p>No forecast data available.</p>", "</body>", "</html>"])
     
-    location_dirs = sorted(output_dir.iterdir())
+    by_location_dir = output_dir / "by-location"
+    
+    if not by_location_dir.exists():
+        return "\n".join(lines + ["  <p>No forecast data available.</p>", "</body>", "</html>"])
+    
+    location_dirs = sorted(by_location_dir.iterdir())
     
     if not location_dirs:
         lines.append("  <p>No forecast data available.</p>")
@@ -60,16 +65,16 @@ def generate_index(output_dir: Path) -> str:
             if not loc_dir.is_dir():
                 continue
             
-            # Extract location ID from dir name (e.g., "BBC Weather location 2644577")
-            location_id = loc_dir.name.replace("BBC Weather location ", "")
+            # Location ID is the directory name
+            location_id = loc_dir.name
             
             lines.append(f"  <div class=\"location\">")
-            lines.append(f"    <h2>BBC Weather Location {location_id}</h2>")
+            lines.append(f"    <h2>Location {location_id}</h2>")
             lines.append("    <ul class=\"reports\">")
             
             # Find all forecast files
             for md_file in sorted(loc_dir.glob("*.md")):
-                lines.append(f"      <li><a href=\"{loc_dir.name}/{md_file.name}\">{md_file.name}</a></li>")
+                lines.append(f"      <li><a href=\"by-location/{location_id}/{md_file.name}\">{md_file.name}</a></li>")
             
             lines.append("    </ul>")
             lines.append("  </div>")

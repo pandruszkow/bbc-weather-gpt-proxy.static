@@ -175,14 +175,20 @@ def generate_batch_files(
     if records:
         location_name = records[0].location_name
     
-    # Build location directory path
-    location_dir_name = f"BBC Weather location {location_id}"
-    location_dir = output_dir / location_dir_name
+    # Build location directory path: by-location/{location_id}
+    location_dir = output_dir / "by-location" / str(location_id)
     
     # Calculate window date ranges
     windows = calculate_window_dates(run_datetime)
     
     written_files = []
+    
+    # Window name to filename mapping
+    window_filename_map = {
+        "24h": "next-24-hours.md",
+        "3d": "next-3-days.md",
+        "1w": "next-1-week.md",
+    }
     
     for window_name, (start_date, end_date) in windows.items():
         # Filter records for this window
@@ -211,9 +217,8 @@ def generate_batch_files(
         # Generate content
         content = generate_markdown_content(window_records, run_date, location_name)
         
-        # Build filename
-        # Format: "Weather forecast for yyyy-mm-dd (next {window}).md"
-        filename = f"Weather forecast for {run_date.isoformat()} (next {window_name}).md"
+        # Build filename: next-{interval}.md
+        filename = window_filename_map.get(window_name, f"next-{window_name}.md")
         filepath = location_dir / filename
         
         # Write atomically
