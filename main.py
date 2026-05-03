@@ -229,7 +229,7 @@ Examples:
         logging.getLogger().setLevel(logging.DEBUG)
     
     # Determine location IDs
-    location_ids = []
+    location_ids: list[int] = []
     
     # CLI args take precedence if provided
     if args.locations:
@@ -247,6 +247,27 @@ Examples:
                 location_ids = parse_location_ids(env_locations)
             except ValueError as e:
                 logger.error(f"Failed to parse {ENV_VAR_LOCATIONS}: {e}")
+                return EXIT_GENERIC_ERROR
+        else:
+            # Fall back to SUPPORTED_LOCATIONS.md
+            locations_file = Path("SUPPORTED_LOCATIONS.md")
+            if locations_file.exists():
+                logger.info(f"Reading locations from {locations_file}")
+                content = locations_file.read_text()
+                for line in content.strip().split('\n'):
+                    line = line.strip()
+                    if not line or line.startswith('<!--'):
+                        continue
+                    if ':' in line:
+                        _, id_str = line.split(':', 1)
+                        try:
+                            location_ids.append(int(id_str.strip()))
+                        except ValueError:
+                            logger.warning(f"Invalid location entry: {line}")
+            else:
+                logger.error(f"No locations specified and {locations_file} not found.")
+                logger.error("Use CLI args, {ENV_VAR_LOCATIONS} env var, or create {locations_file}.")
+                return EXIT_GENERIC_ERROR
                 return EXIT_GENERIC_ERROR
     
     if not location_ids:
