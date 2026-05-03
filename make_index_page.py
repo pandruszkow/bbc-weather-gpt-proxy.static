@@ -52,29 +52,49 @@ def generate_index(output_dir: Path) -> str:
         return "\n".join(lines + ["  <p>No forecast data available.</p>", "</body>", "</html>"])
     
     by_location_dir = output_dir / "by-location"
+    by_location_id_dir = output_dir / "by-location-id"
     
-    if not by_location_dir.exists():
-        return "\n".join(lines + ["  <p>No forecast data available.</p>", "</body>", "</html>"])
+    # Collect locations from both directories
+    locations = {}
     
-    location_dirs = sorted(by_location_dir.iterdir())
+    if by_location_dir.exists():
+        for loc_dir in by_location_dir.iterdir():
+            if loc_dir.is_dir():
+                locations[loc_dir.name] = {"by_name": loc_dir, "by_id": None}
     
-    if not location_dirs:
+    if by_location_id_dir.exists():
+        for loc_dir in by_location_id_dir.iterdir():
+            if loc_dir.is_dir():
+                if loc_dir.name in locations:
+                    locations[loc_dir.name]["by_id"] = loc_dir
+                else:
+                    locations[loc_dir.name] = {"by_name": None, "by_id": loc_dir}
+    
+    if not locations:
         lines.append("  <p>No forecast data available.</p>")
     else:
-        for loc_dir in location_dirs:
-            if not loc_dir.is_dir():
+        for loc_name in sorted(locations.keys()):
+            loc_info = locations[loc_name]
+            loc_dir = loc_info["by_name"] or loc_info["by_id"]
+            if not loc_dir:
                 continue
             
-            # Location ID is the directory name
-            location_id = loc_dir.name
-            
             lines.append(f"  <div class=\"location\">")
-            lines.append(f"    <h2>Location {location_id}</h2>")
+            lines.append(f"    <h2>{loc_name}</h2>")
+            
+            # Show both path options if available
+            if loc_info["by_name"] and loc_info["by_id"]:
+                lines.append("    <p class=\"paths\">Paths: ")
+                lines.append(f'<a href="by-location/{loc_name}/">by-location</a>, ')
+                lines.append(f'<a href="by-location-id/{loc_name}/">by-location-id</a>')
+                lines.append("    </p>")
+            
             lines.append("    <ul class=\"reports\">")
             
             # Find all forecast files
             for md_file in sorted(loc_dir.glob("*.md")):
-                lines.append(f"      <li><a href=\"by-location/{location_id}/{md_file.name}\">{md_file.name}</a></li>")
+                subdir = "by-location" if loc_info["by_name"] else "by-location-id"
+                lines.append(f"      <li><a href=\"{subdir}/{loc_name}/{md_file.name}\">{md_file.name}</a></li>")
             
             lines.append("    </ul>")
             lines.append("  </div>")

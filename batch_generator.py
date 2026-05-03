@@ -6,6 +6,7 @@ Markdown output files with formatted forecasts.
 
 import logging
 import os
+import re
 from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 from pathlib import Path
@@ -24,6 +25,42 @@ WINDOW_DEFINITIONS = [
     ("3d", 2, 3),   # Today+2 more before 06:00, today+3 more after
     ("1w", 6, 7),   # Today+6 more before 06:00, today+7 more after
 ]
+
+# Filename for supported locations list
+SUPPORTED_LOCATIONS_FILE = "SUPPORTED_LOCATIONS.md"
+
+
+def load_location_names(repo_root: Path) -> dict[int, str]:
+    """Load location ID to name mapping from SUPPORTED_LOCATIONS.md.
+    
+    Args:
+        repo_root: Path to the repository root
+        
+    Returns:
+        Dict mapping location_id (int) to location name (str)
+    """
+    locations_file = repo_root / SUPPORTED_LOCATIONS_FILE
+    if not locations_file.exists():
+        logger.warning(f"Supported locations file not found: {locations_file}")
+        return {}
+    
+    mapping = {}
+    content = locations_file.read_text()
+    
+    # Parse "CityName: location_id" lines, skipping the HTML comment
+    for line in content.strip().split('\n'):
+        line = line.strip()
+        if not line or line.startswith('<!--'):
+            continue
+        if ':' in line:
+            name, id_str = line.split(':', 1)
+            try:
+                mapping[int(id_str.strip())] = name.strip()
+            except ValueError:
+                logger.warning(f"Invalid location entry: {line}")
+    
+    logger.info(f"Loaded {len(mapping)} location names from {SUPPORTED_LOCATIONS_FILE}")
+    return mapping
 
 
 def get_uk_time() -> datetime:
@@ -170,13 +207,17 @@ def generate_batch_files(
     
     run_date = run_datetime.date()
     
-    # Create staging directory for atomic writes
-    location_name = None
-    if records:
-        location_name = records[0].location_name
+    # Load location name mapping
+    location_names = load_location_names(output_dir.parent)
     
-    # Build location directory path: by-location/{location_id}
-    location_dir = output_dir / "by-location" / str(location_id)
+    # Determine location name (from mapping, or fallback to ID as string)
+    location_name = location_names.get(location_id, str(location_id))
+    
+    # Build both directory paths:
+    # - by-location/{location_name}/
+    # - by-location-id/{location_id}/
+    location_dir_by_name = output_dir / "by-location" / location_name
+    location_dir_by_id = output_dir / "by-location-id" / str(location_id)
     
     # Calculate window date ranges
     windows = calculate_window_dates(run_datetime)
@@ -219,12 +260,18 @@ def generate_batch_files(
         
         # Build filename: next-{interval}.md
         filename = window_filename_map.get(window_name, f"next-{window_name}.md")
-        filepath = location_dir / filename
         
-        # Write atomically
-        write_file_atomic(filepath, content)
-        written_files.append(filepath)
+        # Write to both paths: by-location/{name} and by-location-id/{id}
+        filepath_by_name = location_dir_by_name / filename
+        filepath_by_id = location_dir_by_id / filename
         
-        logger.info(f"Generated {filepath} ({len(window_records)} records)")
+        write_file_atomic(filepath_by_name, content)
+        write_file_atomic(filepath_by_id, content)
+        
+        written_files.extend([filepath_by_name, filepath_by_id])
+        
+        logger.info(f"Generated {filepath_by_name} and {filepath_by_id} ({len(window_records)} records)")
+    
+    return written_files
     
     return written_files
