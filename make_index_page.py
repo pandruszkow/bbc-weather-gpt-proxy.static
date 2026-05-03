@@ -76,7 +76,7 @@ def generate_index(output_dir: Path) -> str:
     
     lines.extend([
         "  <div class=\"meta\">",
-        "    <p>Weather data from BBC Weather. Updated every 2 hours.</p>",
+        "    <p>Weather data from BBC Weather. Updated every [minimum GitHub Actions workflow interval - currently 2 hours as of last edit to this page template].</p>",
         "  </div>",
         "</body>",
         "</html>"
