@@ -5,8 +5,9 @@ Creates an index page that links to all available forecast reports.
 
 import os
 import sys
-from datetime import date
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 def generate_index(output_dir: Path) -> str:
@@ -18,7 +19,7 @@ def generate_index(output_dir: Path) -> str:
     Returns:
         HTML content for the index page
     """
-    today = date.today()
+    now = datetime.now(ZoneInfo("Europe/London"))
     
     lines = [
         "<!DOCTYPE html>",
@@ -45,7 +46,7 @@ def generate_index(output_dir: Path) -> str:
         "</head>",
         "<body>",
         "  <h1>BBC Weather Forecasts</h1>",
-        "  <p>Generated: " + today.strftime("%Y-%m-%d") + "</p>",
+        "  <p>Generated: " + now.strftime("%Y-%m-%d %H:%M %Z") + " (UK time). Each forecast page states its own generation and BBC issue times.</p>",
     ]
     
     if not output_dir.exists():

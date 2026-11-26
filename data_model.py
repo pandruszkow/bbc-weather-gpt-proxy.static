@@ -129,3 +129,26 @@ def parse_bbc_forecast(raw_data: dict, location_id: int) -> list[WeatherRecord]:
                 continue
     
     return records
+
+
+def _parse_bbc_timestamp(value) -> Optional[datetime]:
+    """Parse a BBC ISO-8601 timestamp ("...+01:00" or "...Z"); None if absent or malformed."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    # A naive timestamp would be ambiguous; treat it as missing rather than guess.
+    return parsed if parsed.tzinfo is not None else None
+
+
+def parse_bbc_issue_times(raw_data: dict) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Extract the top-level (issueDate, lastUpdated) from a BBC API response.
+    
+    Both are timezone-aware datetimes, or None when missing/unparseable.
+    """
+    return (
+        _parse_bbc_timestamp(raw_data.get("issueDate")),
+        _parse_bbc_timestamp(raw_data.get("lastUpdated")),
+    )

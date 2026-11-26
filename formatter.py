@@ -6,24 +6,48 @@ for LLM consumption. Includes template parsing and field conditioning.
 
 import logging
 import re
-from datetime import date
-from typing import Callable
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from data_model import WeatherRecord
 
 logger = logging.getLogger(__name__)
 
-# Weather type text mappings: raw BBC value -> conditioned output
+UK_TZ = ZoneInfo("Europe/London")
+
+# Weather type text mappings: raw BBC value -> conditioned output.
+# Only "Clear Sky" differs from the lowercase fallback; the rest are listed so
+# that known values don't log a warning. Values seen in live data or the
+# fixture as of 2026-11, plus the remaining Met Office precipitation types.
 WEATHER_TYPE_MAPPINGS = {
-    "Partly Cloudy": "partly cloudy",
-    "Sunny Intervals": "sunny intervals",
-    "Light Cloud": "light cloud",
     "Clear Sky": "clear skies",
-    "Light Rain Showers": "light rain showers",
-    "Thick Cloud": "thick cloud",
     "Sunny": "sunny",
+    "Sunny Intervals": "sunny intervals",
+    "Partly Cloudy": "partly cloudy",
+    "Light Cloud": "light cloud",
+    "Thick Cloud": "thick cloud",
+    "Mist": "mist",
+    "Fog": "fog",
+    "Hazy": "hazy",
     "Drizzle": "drizzle",
+    "Light Rain": "light rain",
+    "Light Rain Showers": "light rain showers",
+    "Heavy Rain": "heavy rain",
+    "Heavy Rain Showers": "heavy rain showers",
+    "Sleet": "sleet",
+    "Sleet Showers": "sleet showers",
+    "Hail": "hail",
+    "Hail Showers": "hail showers",
+    "Light Snow": "light snow",
+    "Light Snow Showers": "light snow showers",
+    "Heavy Snow": "heavy snow",
+    "Heavy Snow Showers": "heavy snow showers",
+    "Thundery Showers": "thundery showers",
 }
+
+# Unmapped values already warned about, so each one is logged once per
+# process instead of once per hourly record (~30 lines per location).
+_warned_weather_types: set[str] = set()
 
 # Template for single record output
 # Uses {function_name(variable)} syntax for conditioned fields
@@ -78,10 +102,7 @@ def format_record(record: WeatherRecord) -> str:
         else:
             # It's a simple variable reference
             if hasattr(record, expr):
-                value = getattr(record, expr)
-                if expr == 'local_date':
-                    return str(value)
-                return str(value)
+                return str(getattr(record, expr))
             else:
                 # Check for conditioned field functions
                 if expr == 'conditioned_timeslot':
@@ -158,11 +179,13 @@ def condition_weather_type(weather_type_text: str) -> str:
     if weather_type_text in WEATHER_TYPE_MAPPINGS:
         return WEATHER_TYPE_MAPPINGS[weather_type_text]
     
-    # Unmapped value - log for future updates
-    logger.warning(
-        f"Unmapped weather_type_text: '{weather_type_text}'. "
-        f"Using lowercase fallback. Consider adding to WEATHER_TYPE_MAPPINGS."
-    )
+    # Unmapped value - log once for future updates
+    if weather_type_text not in _warned_weather_types:
+        _warned_weather_types.add(weather_type_text)
+        logger.warning(
+            f"Unmapped weather_type_text: '{weather_type_text}'. "
+            f"Using lowercase fallback. Consider adding to WEATHER_TYPE_MAPPINGS."
+        )
     
     return weather_type_text.lower()
 
@@ -207,3 +230,16 @@ def format_date_header(target_date, run_date: date) -> str:
     month_name = target_date.strftime("%B")
     
     return f"{prefix}{day}{suffix} of {month_name} ({day_name})"
+
+
+def format_timestamp(moment: datetime) -> str:
+    """Format a moment as UK local time, e.g. "Thursday 26 November 2026, 17:10 GMT".
+    
+    Aware datetimes are converted to Europe/London; naive ones are assumed to
+    already be UK local time.
+    """
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UK_TZ)
+    else:
+        moment = moment.astimezone(UK_TZ)
+    return f"{moment.strftime('%A')} {moment.day} {moment.strftime('%B %Y, %H:%M %Z')}"

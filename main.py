@@ -10,14 +10,13 @@ import os
 import re
 import sys
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from api_client import fetch_weather_data, APIRetryExhaustedError, APITimeoutError, APIError
-from batch_generator import generate_batch_files, get_uk_time
-from data_model import parse_bbc_forecast
+from api_client import fetch_weather_data
+from batch_generator import DEFAULT_LOCATIONS_PATH, generate_batch_files, get_uk_time, load_location_names
+from data_model import parse_bbc_forecast, parse_bbc_issue_times
 
 # Default configuration
 DEFAULT_OUTPUT_DIR = Path("output")
@@ -27,8 +26,6 @@ ENV_VAR_LOCATIONS = "WEATHER_BATCH_LOCATION"
 # Exit codes
 EXIT_SUCCESS = 0
 EXIT_GENERIC_ERROR = 1
-EXIT_UV_NOT_FOUND = 127
-EXIT_UV_NOT_EXECUTABLE = 126
 EXIT_BASE_FAILURE = 10  # 10 + count of failed locations
 
 # Setup logging
@@ -97,6 +94,7 @@ def process_single_location(
     location_id: int,
     output_dir: Path,
     run_datetime: datetime,
+    location_name: Optional[str] = None,
 ) -> tuple[int, Optional[list[Path]]]:
     """Process a single location through the full pipeline.
     
@@ -104,6 +102,7 @@ def process_single_location(
         location_id: BBC location identifier
         output_dir: Base output directory
         run_datetime: When the script is running
+        location_name: Name from SUPPORTED_LOCATIONS.md (None: use the ID)
         
     Returns:
         Tuple of (location_id, list_of_written_files or None if failed)
@@ -124,7 +123,16 @@ def process_single_location(
             return (location_id, None)
         
         # Step 3: Generate batch files
-        written_files = generate_batch_files(records, location_id, output_dir, run_datetime)
+        issued_at, last_updated_at = parse_bbc_issue_times(raw_data)
+        written_files = generate_batch_files(
+            records,
+            location_id,
+            output_dir,
+            run_datetime,
+            location_name=location_name or str(location_id),
+            issued_at=issued_at,
+            last_updated_at=last_updated_at,
+        )
         logger.info(f"[{location_id}] Generated {len(written_files)} batch files")
         
         return (location_id, written_files)
@@ -150,6 +158,7 @@ def run_pipeline(
         Exit code (0 for success, 10+N for N failures)
     """
     run_datetime = get_uk_time()
+    location_names = load_location_names()
     
     logger.info(f"Starting pipeline for {len(location_ids)} location(s)")
     logger.info(f"Output directory: {output_dir}")
@@ -163,7 +172,9 @@ def run_pipeline(
     threads = []
     
     def worker(location_id: int):
-        result = process_single_location(location_id, output_dir, run_datetime)
+        result = process_single_location(
+            location_id, output_dir, run_datetime, location_names.get(location_id)
+        )
         results[location_id] = result[1]  # None or list of paths
     
     # Start threads
@@ -199,7 +210,10 @@ Environment variables:
   {ENV_VAR_LOCATIONS}    Comma/semicolon/space separated location IDs
   {ENV_VAR_OUTPUT}       Override output directory (higher priority than --output)
 
+With neither, every location in SUPPORTED_LOCATIONS.md (next to main.py) is used.
+
 Examples:
+  python main.py
   python main.py 2644577
   WEATHER_BATCH_LOCATION="2644577 2653940" python main.py
   WEATHER_BATCH_OUTPUT=/var/weather python main.py 2644577
@@ -249,29 +263,16 @@ Examples:
                 logger.error(f"Failed to parse {ENV_VAR_LOCATIONS}: {e}")
                 return EXIT_GENERIC_ERROR
         else:
-            # Fall back to SUPPORTED_LOCATIONS.md
-            locations_file = Path("SUPPORTED_LOCATIONS.md")
-            if locations_file.exists():
-                logger.info(f"Reading locations from {locations_file}")
-                content = locations_file.read_text()
-                for line in content.strip().split('\n'):
-                    line = line.strip()
-                    if not line or line.startswith('<!--'):
-                        continue
-                    if ':' in line:
-                        _, id_str = line.split(':', 1)
-                        try:
-                            location_ids.append(int(id_str.strip()))
-                        except ValueError:
-                            logger.warning(f"Invalid location entry: {line}")
-            else:
-                logger.error(f"No locations specified and {locations_file} not found.")
-                logger.error("Use CLI args, {ENV_VAR_LOCATIONS} env var, or create {locations_file}.")
+            # Fall back to SUPPORTED_LOCATIONS.md next to the code
+            if not DEFAULT_LOCATIONS_PATH.exists():
+                logger.error(f"No locations specified and {DEFAULT_LOCATIONS_PATH} not found.")
+                logger.error(f"Use CLI args, {ENV_VAR_LOCATIONS} env var, or create {DEFAULT_LOCATIONS_PATH}.")
                 return EXIT_GENERIC_ERROR
-                return EXIT_GENERIC_ERROR
+            logger.info(f"Reading locations from {DEFAULT_LOCATIONS_PATH}")
+            location_ids = list(load_location_names())
     
     if not location_ids:
-        logger.error(f"No locations specified. Use CLI args or {ENV_VAR_LOCATIONS} env var.")
+        logger.error(f"No locations specified. Use CLI args, {ENV_VAR_LOCATIONS} env var, or {DEFAULT_LOCATIONS_PATH.name}.")
         return EXIT_GENERIC_ERROR
     
     # Determine output directory

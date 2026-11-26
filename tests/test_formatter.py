@@ -1,11 +1,13 @@
 """Unit tests for the formatter module."""
 
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 
+import formatter
 from data_model import WeatherRecord
 from formatter import (
     format_record,
+    format_timestamp,
     conditioned_timeslot,
     conditions_phrase,
     condition_weather_type,
@@ -65,8 +67,34 @@ class TestConditionWeatherType(unittest.TestCase):
     
     def test_unknown_fallback_lowercase(self):
         """Unknown weather types should fall back to lowercase."""
-        self.assertEqual(condition_weather_type("Heavy Snow"), "heavy snow")
-        self.assertEqual(condition_weather_type("Thundery Showers"), "thundery showers")
+        self.assertEqual(condition_weather_type("Tropical Storm"), "tropical storm")
+        self.assertEqual(condition_weather_type("Sandstorm"), "sandstorm")
+    
+    def test_types_seen_in_live_data_are_mapped(self):
+        """Every type observed in the 2026-11 live data or the fixture: no warnings."""
+        for t in ["Light Rain", "Heavy Rain", "Heavy Rain Showers", "Mist", "Fog",
+                  "Sleet", "Thundery Showers", "Drizzle", "Thick Cloud"]:
+            self.assertIn(t, formatter.WEATHER_TYPE_MAPPINGS)
+    
+    def test_unmapped_warns_once_per_type(self):
+        formatter._warned_weather_types.discard("Volcanic Ash")
+        with self.assertLogs("formatter", level="WARNING") as logs:
+            for _ in range(5):
+                condition_weather_type("Volcanic Ash")
+        self.assertEqual(len(logs.records), 1)
+
+
+class TestFormatTimestamp(unittest.TestCase):
+    def test_converts_utc_to_bst(self):
+        moment = datetime(2026, 7, 2, 10, 5, tzinfo=timezone.utc)
+        self.assertEqual(format_timestamp(moment), "Thursday 2 July 2026, 11:05 BST")
+    
+    def test_winter_is_gmt(self):
+        moment = datetime(2026, 11, 26, 17, 10, tzinfo=timezone.utc)
+        self.assertEqual(format_timestamp(moment), "Thursday 26 November 2026, 17:10 GMT")
+    
+    def test_naive_assumed_uk_local(self):
+        self.assertEqual(format_timestamp(datetime(2026, 4, 25, 23, 17)), "Saturday 25 April 2026, 23:17 BST")
 
 
 class TestFormatDateHeader(unittest.TestCase):

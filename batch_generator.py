@@ -5,8 +5,6 @@ Markdown output files with formatted forecasts.
 """
 
 import logging
-import os
-import re
 from datetime import date, datetime, time, timedelta
 from collections import defaultdict
 from pathlib import Path
@@ -14,7 +12,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from data_model import WeatherRecord
-from formatter import format_record, format_date_header
+from formatter import format_record, format_date_header, format_timestamp
 from output_writer import write_file_atomic
 
 logger = logging.getLogger(__name__)
@@ -26,20 +24,28 @@ WINDOW_DEFINITIONS = [
     ("1w", 6, 7),   # Today+6 more before 06:00, today+7 more after
 ]
 
-# Filename for supported locations list
+# Supported locations list. Resolved next to the code, not relative to the
+# output directory or the working directory: both of those only happened to
+# work in CI because _output sits in the repo root.
 SUPPORTED_LOCATIONS_FILE = "SUPPORTED_LOCATIONS.md"
+DEFAULT_LOCATIONS_PATH = Path(__file__).resolve().parent / SUPPORTED_LOCATIONS_FILE
+
+UK_TZ = ZoneInfo("Europe/London")
 
 
-def load_location_names(repo_root: Path) -> dict[int, str]:
+def load_location_names(locations_file: Path = DEFAULT_LOCATIONS_PATH) -> dict[int, str]:
     """Load location ID to name mapping from SUPPORTED_LOCATIONS.md.
     
+    This is the single parser for that file; main.py uses the keys as the
+    default location list.
+    
     Args:
-        repo_root: Path to the repository root
+        locations_file: Path to the file (defaults to the one next to this module)
         
     Returns:
-        Dict mapping location_id (int) to location name (str)
+        Dict mapping location_id (int) to location name (str), in file order
     """
-    locations_file = repo_root / SUPPORTED_LOCATIONS_FILE
+    locations_file = Path(locations_file)
     if not locations_file.exists():
         logger.warning(f"Supported locations file not found: {locations_file}")
         return {}
@@ -65,8 +71,7 @@ def load_location_names(repo_root: Path) -> dict[int, str]:
 
 def get_uk_time() -> datetime:
     """Get current time in UK timezone (UTC+0 in winter, UTC+1 in summer)."""
-    uk_tz = ZoneInfo("Europe/London")
-    return datetime.now(uk_tz)
+    return datetime.now(UK_TZ)
 
 
 def calculate_window_dates(run_datetime: datetime) -> dict[str, tuple[date, date]]:
@@ -138,10 +143,35 @@ def group_records_by_date(records: list[WeatherRecord]) -> dict[date, list[Weath
     return dict(grouped)
 
 
+def format_provenance_line(
+    generated_at: Optional[datetime],
+    issued_at: Optional[datetime] = None,
+    last_updated_at: Optional[datetime] = None,
+) -> str:
+    """One paragraph stating when this file was generated and from which BBC issue.
+    
+    Without it, a frozen feed is indistinguishable from a fresh one: during the
+    July-November 2026 outage the pages kept saying "Today, 2nd of July".
+    """
+    parts = []
+    if generated_at is not None:
+        parts.append(f"Generated: {format_timestamp(generated_at)}.")
+    if issued_at is not None:
+        issue = f"BBC forecast issued: {format_timestamp(issued_at)}"
+        if last_updated_at is not None:
+            issue += f"; last updated: {format_timestamp(last_updated_at)}"
+        parts.append(issue + ".")
+    elif last_updated_at is not None:
+        parts.append(f"BBC forecast last updated: {format_timestamp(last_updated_at)}.")
+    parts.append("All times are UK local time.")
+    return " ".join(parts)
+
+
 def generate_markdown_content(
     records: list[WeatherRecord],
     run_date: date,
     location_name: Optional[str] = None,
+    provenance: Optional[str] = None,
 ) -> str:
     """Generate Markdown content from weather records.
     
@@ -151,6 +181,7 @@ def generate_markdown_content(
         records: Weather records to include
         run_date: The date the script was run (for relative date headers)
         location_name: Optional location name for header
+        provenance: Optional paragraph placed under the H1 (see format_provenance_line)
         
     Returns:
         Complete Markdown document as string
@@ -167,6 +198,9 @@ def generate_markdown_content(
         lines.append("# Weather forecast data")
     
     lines.append("")
+    if provenance:
+        lines.append(provenance)
+        lines.append("")
     by_date = group_records_by_date(records)
     
     for date_key in sorted(by_date.keys()):
@@ -190,17 +224,27 @@ def generate_batch_files(
     location_id: int,
     output_dir: Path,
     run_datetime: Optional[datetime] = None,
+    location_name: Optional[str] = None,
+    issued_at: Optional[datetime] = None,
+    last_updated_at: Optional[datetime] = None,
 ) -> list[Path]:
     """Generate all batch files for a location.
     
     Creates 24h, 3d, and 1w forecast files based on the current time.
-    All files are written or none (atomic per-location).
+    Every window is validated before anything is written, so a data problem
+    leaves the location's previous files untouched. Each individual write is
+    atomic; the set of files as a whole is not (a crash mid-loop can leave a
+    mix of old and new files).
     
     Args:
         records: All available weather records for the location
         location_id: BBC location identifier
         output_dir: Base output directory
-        run_datetime: When the script is running (defaults to now)
+        run_datetime: When the script is running (defaults to now, UK time)
+        location_name: Directory/header name; looked up in SUPPORTED_LOCATIONS.md
+            if omitted, falling back to the ID
+        issued_at: BBC issueDate, shown in the provenance line
+        last_updated_at: BBC lastUpdated, shown in the provenance line
         
     Returns:
         List of paths to written files
@@ -209,15 +253,14 @@ def generate_batch_files(
         ValueError: If insufficient data for any window
     """
     if run_datetime is None:
-        run_datetime = datetime.now()
+        run_datetime = get_uk_time()
     
     run_date = run_datetime.date()
     
-    # Load location name mapping
-    location_names = load_location_names(output_dir.parent)
+    if location_name is None:
+        location_name = load_location_names().get(location_id, str(location_id))
     
-    # Determine location name (from mapping, or fallback to ID as string)
-    location_name = location_names.get(location_id, str(location_id))
+    provenance = format_provenance_line(run_datetime, issued_at, last_updated_at)
     
     # Build both directory paths:
     # - by-location/{location_name}/
@@ -237,13 +280,17 @@ def generate_batch_files(
         "1w": "next-1-week.md",
     }
     
+    # Validate every window first, then write: a failure must not leave a
+    # half-updated set of files behind.
+    planned: list[tuple[str, list[WeatherRecord]]] = []
     for window_name, (start_date, end_date) in windows.items():
         # Filter records for this window
         window_records = filter_records_by_date_range(records, start_date, end_date)
         
         # Verify we have at least today for 24h (permissive - BBC may not have tomorrow yet)
         # For 3d and 1w, require complete coverage
-        actual_days = len(set(r.local_date for r in window_records))
+        window_dates = set(r.local_date for r in window_records)
+        actual_days = len(window_dates)
         
         if window_name == "24h":
             # Permissive: at minimum we need today
@@ -255,14 +302,22 @@ def generate_batch_files(
         else:
             # Strict validation for longer windows
             expected_days = (end_date - start_date).days + 1
+            # BBC drops each hour once it has passed, so from roughly 23:00 UK
+            # time there are no slots left for today. That is not missing
+            # data; demanding it made every late-evening run fail.
+            if start_date == run_date and run_date not in window_dates:
+                expected_days -= 1
             if actual_days < expected_days:
                 raise ValueError(
                     f"Incomplete data for {window_name}: "
                     f"expected {expected_days} days, got {actual_days}"
                 )
         
+        planned.append((window_name, window_records))
+    
+    for window_name, window_records in planned:
         # Generate content
-        content = generate_markdown_content(window_records, run_date, location_name)
+        content = generate_markdown_content(window_records, run_date, location_name, provenance)
         
         # Build filename: next-{interval}.md
         filename = window_filename_map.get(window_name, f"next-{window_name}.md")
@@ -277,7 +332,5 @@ def generate_batch_files(
         written_files.extend([filepath_by_name, filepath_by_id])
         
         logger.info(f"Generated {filepath_by_name} and {filepath_by_id} ({len(window_records)} records)")
-    
-    return written_files
     
     return written_files
