@@ -287,13 +287,13 @@ def generate_batch_files(
         # Filter records for this window
         window_records = filter_records_by_date_range(records, start_date, end_date)
         
-        # Verify we have at least today for 24h (permissive - BBC may not have tomorrow yet)
-        # For 3d and 1w, require complete coverage
+        # 24h is permissive: any data at all (normally today; after ~23:00
+        # only tomorrow). 3d and 1w require every day except an empty today.
         window_dates = set(r.local_date for r in window_records)
         actual_days = len(window_dates)
         
         if window_name == "24h":
-            # Permissive: at minimum we need today
+            # Permissive: at least one day
             if actual_days < 1:
                 raise ValueError(
                     f"No data available for {window_name}: "
