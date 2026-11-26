@@ -26,10 +26,12 @@ Common UK locations:
 ### Data Freshness
 - Forecasts update approximately hourly
 - `lastUpdated` timestamp in API response indicates freshness
-- Historical data: The API drops past hours from `detailed.reports` as they elapse
+- Historical data: The API drops past hours from `detailed.reports` as they elapse — in practice the current hour disappears once BBC reissues, so a run at 17:04 can already start at 18:00, and after ~23:00 there is nothing left for today
+- `issueDate` varies by location (observed spread of 5 hours on 2026-11-26); `lastUpdated` is in UTC with a `Z` suffix, `issueDate` has a `+00:00`/`+01:00` offset
 
 ### Coverage
-- **Typical**: 13-14 days of hourly forecasts available
+- **Live API (2026-11)**: 10 forecast blocks (each 06:00–05:00), i.e. 11 calendar dates, the last of which only covers 00:00–05:00. The 1-week window needs 8 dates, so the margin is about 2 days
+- **Fixture (2026-04)**: 14 blocks — BBC has shortened the horizon since
 - **Minimum observed**: 5 days
 - **Gap handling**: If a gap is detected (missing hour), the parser skips it; downstream logic may see non-contiguous timeslots
 
@@ -63,7 +65,7 @@ WEATHER_BATCH_LOCATION="failed_id" make run
 **Likely causes**:
 - Network outage
 - BBC API down or changed
-- `uv`/`uvx` not available (exit 126/127)
+- (`make` only: exit 127 means `uv` is not installed)
 **Recovery**: Check connectivity, verify API still responding:
 ```bash
 curl "https://weather-broker-cdn.api.bbci.co.uk/en/forecast/aggregated/2644577"
@@ -73,7 +75,7 @@ curl "https://weather-broker-cdn.api.bbci.co.uk/en/forecast/aggregated/2644577"
 **Cause**: Process killed mid-write (SIGTERM, OOM killer)
 **Recovery**: Delete output directory and re-run:
 ```bash
-rm -rf output/"BBC Weather location 2644577"
+rm -rf output/by-location/Leven output/by-location-id/2644577
 WEATHER_BATCH_LOCATION="2644577" make run
 ```
 
@@ -87,15 +89,15 @@ WEATHER_BATCH_LOCATION="2644577" make run
 
 **INFO**: Normal operation
 ```
-[2644577] Fetched 14 forecast blocks
-[2644577] Generated output/BBC Weather location 2644577/Weather forecast for 2026-04-26 (next 24h).md (22 records)
+[2644577] Fetched 10 forecast blocks
+Generated output/by-location/Leven/next-24-hours.md and output/by-location-id/2644577/next-24-hours.md (31 records)
 ```
 
 **WARNING**: Recoverable, but notable
 ```
 formatter - WARNING - Unmapped weather_type_text: 'Heavy Snow'. Using lowercase fallback.
 ```
-Action: Add mapping to `WEATHER_TYPE_MAPPINGS` if this becomes common.
+Logged once per unmapped type per run. Action: add it to `WEATHER_TYPE_MAPPINGS`.
 
 **ERROR**: Requires intervention
 ```
@@ -129,6 +131,12 @@ To test specific conditions (e.g., calm weather, high precipitation), edit the f
 record["precipitationProbabilityInPercent"] = 0
 record["windSpeedKph"] = 0
 ```
+
+## GitHub Actions schedule: 60-day auto-disable
+
+GitHub disables scheduled workflows in public repos after 60 days without repository activity. That froze the feed from 2026-07-02 (last commit 2026-05-03) until 2026-11-26. The `keepalive` job in `periodic-update.yml` runs `gh workflow enable periodic-update.yml` on every scheduled run to reset that clock. GitHub does not document that this works (it is the default mechanism of gautamkrishnar/keepalive-workflow); if the workflow ever shows `state: disabled_inactivity` again, it didn't — re-enable via Actions → the workflow → "Enable workflow", or `PUT /repos/{owner}/{repo}/actions/workflows/periodic-update.yml/enable`.
+
+GitHub's scheduler also runs cron jobs late, often by 30+ minutes, so the `59 */2 * * *` slots land anywhere in the following hour.
 
 ## Cron/Scheduling Recommendations
 
@@ -196,7 +204,7 @@ chmod 750 output/
 
 | Problem | Check |
 |---------|-------|
-| Exit 127/126 | `which uv` and `which uvx` — is uv installed? |
+| `make` exits 127 | `command -v uv` — is uv installed? |
 | Exit 10+N | Check stderr for which location(s) failed and why |
 | Empty output dir | Was there a disk full condition? Check `df -h` |
 | Missing dates in output | Did BBC return full coverage? Check raw response |

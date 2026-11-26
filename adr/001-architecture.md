@@ -38,7 +38,8 @@ We will adopt a **modular pipeline architecture** with six distinct layers.
 - 5 retry attempts maximum
 - 5-minute hard timeout per request (wall clock from first attempt)
 - Special handling for HTTP 429 (rate limit): obeys `Retry-After` header when present, falls back to exponential backoff when absent
-- Server errors (5xx) trigger retry; client errors (4xx except 429) do not
+- Server errors (5xx), connection errors and timeouts trigger retry; client errors (4xx except 429) do not
+- `Retry-After` (seconds or HTTP-date) is capped at 120 s, and no wait may run past the hard timeout
 
 **Rationale**: The BBC API is unofficial and may have transient failures or rate limiting. Exponential backoff prevents thundering herd while jitter prevents synchronized retries across multiple instances. The hard timeout ensures hung requests don't block the pipeline indefinitely.
 
@@ -111,12 +112,20 @@ Expect {condition_weather_type(weather_type_text)}.
 
 **Rationale for 06:00 cutoff**: Early morning runs (before 06:00) are likely cron jobs seeking "today's forecast." By 06:00, users are awake and planning — they benefit from seeing tomorrow's data too. The cutoff aligns with "everyday data need expectations" rather than being blindly machine-like.
 
-**UK Local Time**: All time-based calculations (06:00 cutoff, window slicing, date headers) use UK local time (`Europe/London` timezone). This correctly handles GMT/BST transitions. GitHub Actions runners use UTC by default; the workflow sets `TZ=Europe/London` to align the runner with the data source timezone.
+**UK Local Time**: All time-based calculations (06:00 cutoff, window slicing, date headers) use UK local time (`Europe/London` timezone). This correctly handles GMT/BST transitions. The code asks for `Europe/London` explicitly via `zoneinfo`, so it does not depend on the host timezone; the workflow additionally sets the runner's timezone with `timedatectl`.
 
-**Atomic Per-Location Writes**: All batch files for a location succeed or fail together. On any failure (insufficient data, disk error), the location's output directory is left empty. This prevents partial/corrupt data from being consumed downstream.
+**Late-evening exemption**: BBC drops each hourly slot once it has passed, so from roughly 23:00 UK time "today" has no slots left. The 3d/1w completeness check therefore does not require today when today is empty; every later day in the window is still required. (Until 2026-11 it did require today, so every run between ~23:00 and midnight failed for all locations and the deploy was skipped.)
+
+**Per-Location Validation Before Writes**: Every window for a location is validated before any of its files is written, so a data problem (e.g. a missing day) leaves that location's previous files untouched instead of a mix of old and new windows. Each individual file write is atomic (see Output Writer); the set of files is *not* — a crash between two writes can still leave a mix. No staging directory is used.
+
+**Provenance line**: Every file has a paragraph under the H1 giving the generation time and BBC's `issueDate`/`lastUpdated`, in UK local time. Without it a frozen feed is indistinguishable from a fresh one (July–November 2026, the pages kept saying "Today, 2nd of July").
 
 **Markdown Structure**:
 ```markdown
+# Weather forecast data for Leven
+
+Generated: … BBC forecast issued: …; last updated: … All times are UK local time.
+
 ## Today, 26th of April (Sunday)
 
 [sentences for this date]
@@ -147,19 +156,16 @@ Expect {condition_weather_type(weather_type_text)}.
 **Per-Location Processing**:
 1. Fetch raw data (with retries)
 2. Parse into unified records
-3. Generate all batch files via staging directory
-4. Atomic rename of staging directory to final location
+3. Validate all windows, then write each file atomically to `by-location/{name}/` and `by-location-id/{id}/`
 
 **Configuration**:
-- `WEATHER_BATCH_LOCATION`: Location IDs, separated by comma/semicolon/space
+- Locations: CLI args, else `WEATHER_BATCH_LOCATION` (IDs separated by comma/semicolon/space), else every entry of `SUPPORTED_LOCATIONS.md` (resolved next to the code)
 - `WEATHER_BATCH_OUTPUT`: Override output directory (env var takes precedence over CLI)
 
 **Exit Codes**:
 - `0`: All locations succeeded
 - `1`: Generic error
 - `10+N`: N locations failed (capped at 100)
-- `126`: `uv`/`uvx` not executable
-- `127`: `uv`/`uvx` not found
 
 **Rationale for 10+N**: Shell scripts can easily check `if [ $? -gt 9 ]; then` to detect partial failures without parsing log output. The cap at 100 keeps codes within a reasonable range.
 
@@ -168,6 +174,7 @@ Expect {condition_weather_type(weather_type_text)}.
 - Per-location atomicity (see Batch Generator)
 - Failed locations are logged to stderr with full response dump of final failed request
 - Processing continues for other locations; exit code reflects aggregate failure count
+- In CI a non-zero exit fails the job before the deploy step, so one failed location keeps the *whole* site at its previous deploy. This is deliberate: the output directory is rebuilt from scratch each run, so deploying a partial result would turn the failed location's pages into 404s, and a page that is 2 hours stale (with a visible generation time) is more useful than a missing one
 
 ---
 
