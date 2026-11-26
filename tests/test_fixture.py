@@ -58,8 +58,10 @@ class TestLevensideWeatherFixture(unittest.TestCase):
         for fc in data["forecasts"]:
             for r in fc["detailed"]["reports"]:
                 dates.add(r["localDate"])
-        today = date.today()
-        expected = {str(today + timedelta(days=i)) for i in range(3)}
+        # Anchor on the fixture's own first date: it is a frozen capture, so
+        # comparing against date.today() turns this into a time bomb.
+        first_day = date.fromisoformat(min(dates))
+        expected = {str(first_day + timedelta(days=i)) for i in range(3)}
         assert expected.issubset(dates), f"Expected dates {expected} not all present in {dates}"
 
     def test_fixture_covers_reasonable_temperature_range(self):
