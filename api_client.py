@@ -4,10 +4,11 @@ This module handles all HTTP I/O with the BBC Weather API endpoint,
 including exponential backoff retries and 429 (rate limit) response handling.
 """
 
-import json
 import logging
 import random
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Optional
 
 import requests
@@ -20,6 +21,7 @@ MAX_RETRIES = 5
 HARD_TIMEOUT_SECONDS = 300  # 5 minutes per request
 BASE_DELAY_SECONDS = 1
 MAX_DELAY_SECONDS = 30
+MAX_RETRY_AFTER_SECONDS = 120  # don't let a hostile/buggy Retry-After park a thread for hours
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,18 @@ def fetch_weather_data(
     start_time = time.time()
     last_response: Optional[requests.Response] = None
     
+    def wait(delay: float, attempt: int) -> None:
+        """Sleep before the next attempt, never past the hard timeout."""
+        if attempt + 1 >= max_retries:
+            return  # no attempt follows; sleeping would only delay the error
+        remaining = hard_timeout - (time.time() - start_time)
+        if delay >= remaining:
+            raise APITimeoutError(
+                f"Hard timeout of {hard_timeout}s would be exceeded by a {delay:.1f}s wait "
+                f"after {attempt + 1} attempts"
+            )
+        time.sleep(delay)
+    
     for attempt in range(max_retries):
         # Check hard timeout
         elapsed = time.time() - start_time
@@ -79,54 +93,44 @@ def fetch_weather_data(
             logger.debug(f"Fetching {url} (attempt {attempt + 1}/{max_retries}, timeout={remaining_timeout:.1f}s)")
             
             response = requests.get(url, timeout=min(30, remaining_timeout))
-            last_response = response
-            
-            # Success case
-            if response.status_code == 200:
-                return response.json()
-            
-            # Rate limit case - obey Retry-After if present
-            if response.status_code == 429:
-                retry_after = response.headers.get('Retry-After')
-                if retry_after:
-                    try:
-                        delay = int(retry_after)
-                        logger.warning(f"Rate limited (429), obeying Retry-After: {delay}s")
-                    except ValueError:
-                        delay = calculate_backoff_delay(attempt)
-                        logger.warning(f"Rate limited (429), invalid Retry-After, using backoff: {delay:.1f}s")
-                else:
-                    delay = calculate_backoff_delay(attempt)
-                    logger.warning(f"Rate limited (429), no Retry-After header, using backoff: {delay:.1f}s")
-                
-                time.sleep(delay)
-                continue
-            
-            # Server errors (5xx) - retry with backoff
-            if 500 <= response.status_code < 600:
-                delay = calculate_backoff_delay(attempt)
-                logger.warning(f"Server error {response.status_code}, retrying in {delay:.1f}s")
-                time.sleep(delay)
-                continue
-            
-            # Client errors (4xx except 429) - don't retry
-            if 400 <= response.status_code < 500:
-                response.raise_for_status()
-            
-            # Other status codes - retry
-            delay = calculate_backoff_delay(attempt)
-            logger.warning(f"Unexpected status {response.status_code}, retrying in {delay:.1f}s")
-            time.sleep(delay)
-            
-        except requests.Timeout:
-            delay = calculate_backoff_delay(attempt)
-            logger.warning(f"Request timeout, retrying in {delay:.1f}s")
-            time.sleep(delay)
-            
         except requests.RequestException as e:
+            # Covers timeouts and connection errors
             delay = calculate_backoff_delay(attempt)
-            logger.warning(f"Request error: {e}, retrying in {delay:.1f}s")
-            time.sleep(delay)
+            logger.warning(f"Request error: {e!r}, retrying in {delay:.1f}s")
+            wait(delay, attempt)
+            continue
+        
+        last_response = response
+        
+        # Success case
+        if response.status_code == 200:
+            return response.json()
+        
+        # Rate limit case - obey Retry-After if present, capped
+        if response.status_code == 429:
+            delay = parse_retry_after(response.headers.get('Retry-After'))
+            if delay is None:
+                delay = calculate_backoff_delay(attempt)
+                logger.warning(f"Rate limited (429), no usable Retry-After, using backoff: {delay:.1f}s")
+            else:
+                delay = min(delay, MAX_RETRY_AFTER_SECONDS)
+                logger.warning(f"Rate limited (429), obeying Retry-After (capped at {MAX_RETRY_AFTER_SECONDS}s): {delay:.1f}s")
+            wait(delay, attempt)
+            continue
+        
+        # Client errors (4xx except 429) - don't retry. Raised as APIError,
+        # not requests.HTTPError: the latter is a RequestException and used to
+        # be caught by the retry handler, so a 404 was retried five times.
+        if 400 <= response.status_code < 500:
+            raise APIError(
+                f"HTTP {response.status_code} for {url}; not retrying. "
+                f"Body (first 500 chars): {response.text[:500]}"
+            )
+        
+        # Server errors (5xx) and anything unexpected - retry with backoff
+        delay = calculate_backoff_delay(attempt)
+        logger.warning(f"HTTP {response.status_code}, retrying in {delay:.1f}s")
+        wait(delay, attempt)
     
     # All retries exhausted
     error_msg = f"Failed to fetch weather data after {max_retries} attempts"
@@ -136,6 +140,27 @@ def fetch_weather_data(
         error_msg += f"\nLast response body (first 500 chars): {last_response.text[:500]}"
     
     raise APIRetryExhaustedError(error_msg)
+
+
+def parse_retry_after(value: Optional[str]) -> Optional[float]:
+    """Parse a Retry-After header (delta-seconds or HTTP-date) into seconds.
+    
+    Returns None if absent or unparseable; never negative.
+    """
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(int(value)))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
 def calculate_backoff_delay(attempt: int) -> float:
