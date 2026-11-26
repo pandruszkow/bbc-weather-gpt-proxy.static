@@ -30,6 +30,8 @@ deliberately dropped, `git rm CLAUDE.md` in the same PR that closes the last one
      Workflow permissions). Report that to the user. Don't swap in a PAT.
    - The previous session queued this check for 20:15Z, but into *its own* session; it may already
      have been done there. Check the run list before redoing it.
+   - Second session, 17:10Z: no `schedule` run yet since the re-enable (the 16:59 slot hadn't fired;
+     GitHub's scheduler ran 35–80 min late in July).
 2. **Whether the keepalive actually resets the 60-day clock.** GitHub does not document this. It is
    the default mechanism of gautamkrishnar/keepalive-workflow and PhrozenByte/gh-workflow-immortality.
    - Proof: the workflow `state` is still `active` after about **2027-01-26**. That date assumes no
@@ -39,6 +41,8 @@ deliberately dropped, `git rm CLAUDE.md` in the same PR that closes the last one
      `gh api -X PUT repos/$GH_REPO/actions/workflows/periodic-update.yml/enable` would remove the
      dependency on the gh version, if that's ever needed.
 3. **Whether `.claude/settings.json` allow rules beat the auto-mode classifier.**
+   - Second session: no classifier denial on any call (Bash, git, curl, pushes to the session branch).
+     A push to `main` was not attempted (no go-ahead), so the deciding case is still untested.
    - In the session that wrote the file, a real `git push` to `main` was still classifier-denied
      after the file existed. A later dry-run push got through, which proves nothing because a dry
      run is harmless.
@@ -49,50 +53,32 @@ deliberately dropped, `git rm CLAUDE.md` in the same PR that closes the last one
      hard rules the allow list can't lift. Cloud sessions offer no bypass mode, and they don't read
      `autoMode` rules from files. Tell the user which result you got.
 
-## Known bugs (verified, not fixed)
+## Known bugs — fixed on `claude/happy-cori-qv9m9k` (2026-11-26, second session), NOT yet on `main`
 
-1. **Every run between about 23:00 and 00:00 UK local time fails, and the site-wide deploy is
-   skipped.**
-   - Evidence: 45 of 515 runs (Apr–Jul 2026) failed, all between 21:59 and 22:56 UTC during BST.
-   - Mechanism: after about 23:00 local time BBC has no hourly slots left for today.
-     `batch_generator.generate_batch_files` does a strict day count for 3d/1w over
-     `[run_date, run_date+N]`, so it sees one day too few and raises
-     `ValueError("Incomplete data for 3d: expected 4 days, got 3")`.
-   - Impact: every location fails, `main.py` exits 10+N, the step fails, and nothing is deployed.
-   - Reproduce with the fixture: run at 2026-04-25 23:17 BST with the 23:00 slot removed.
-   - Fix: anchor the windows on the first available date, or exclude an empty "today" from the
-     strict count. Add a regression test.
-   - Also decide whether one failing location should block deploying the others.
-2. **The Markdown output has no generation timestamp.**
-   - During the five-month freeze, the pages kept saying "Today, 2nd of July". The only freshness
-     signal is a date-only line on `index.html`.
-   - Fix: add a line under the H1 giving the generation time (Europe/London) and BBC's `issueDate`
-     and `lastUpdated` (both are already in the API response). This is the highest-value follow-up
-     for LLM consumers.
-3. **`load_location_names(output_dir.parent)` looks for `SUPPORTED_LOCATIONS.md` next to the output
-   directory instead of next to the code.**
-   - It works in CI by accident, because `_output` sits in the repo root.
-   - Any other output path silently produces ID-named folders and headers such as
-     `# Weather forecast data for 2650225`.
-   - `main.py` parses the same file a second time, relative to the working directory.
-   - Fix: use `Path(__file__).parent` and a single parser.
-4. **The Makefile is broken.**
-   - `uvx --from requirements.txt …` makes uv look for a package called `requirements-txt`.
-     `uv run --with-requirements requirements.txt python …` would do what was intended.
-   - `make run` still demands `WEATHER_BATCH_LOCATION`.
-5. **The weather-type mapping is incomplete.** `Light Rain`, `Heavy Rain` and `Thundery Showers` are
-   unmapped, and each record logs a WARNING (about 30 lines per location). The output is fine
-   because of the lowercase fallback. Add the mappings, or log once per type.
-6. **Small issues in `main.py` and `batch_generator.py`:**
-   - an f-string missing its `f` prefix (`"Use CLI args, {ENV_VAR_LOCATIONS} env var…"`);
-   - unreachable duplicate `return` statements in `main.py` and `batch_generator.py`;
-   - a 429 `Retry-After` wait that has no cap and doesn't check the hard timeout.
-7. **The docs don't match the code.**
-   - README: the old output path format; "uv required" (CI uses pip).
-   - ADR 001: claims a staging directory with atomic rename, which isn't implemented. Each file
-     write is atomic; the per-location file set is not.
-   - NOTES.md: claims 13–14 days of coverage. The live API returns about 10 days, so the 1-week
-     window has about 1.5 days of margin.
+Live only once merged to `main` (a push to `main` also triggers a deploy). 61/61 tests pass on 3.12 and 3.13;
+a live run of all 11 locations from a foreign cwd/output dir succeeded with zero WARNING lines.
+
+1. **23:00–00:00 failure** — fixed: an empty *today* is exempt from the 3d/1w day count; any later
+   missing day still fails. Regression test reproduces the old error. Also: windows are now all
+   validated before any file is written (the old code had already written `next-24-hours.md` before
+   the 3d check raised). Decision on partial deploys: **kept all-or-nothing** — `_output` is rebuilt
+   from scratch, so a partial deploy turns the failed location into 404s; stale-with-timestamp beats
+   missing. Recorded in ADR 001.
+2. **Generation timestamp** — fixed: paragraph under the H1 with generation time, BBC `issueDate` and
+   `lastUpdated`, all in UK local time. Index page now shows time too.
+3. **Location-name lookup** — fixed: single parser `batch_generator.load_location_names`, path
+   `Path(__file__).parent`, loaded once per run in `main.py`.
+4. **Makefile** — fixed: `uv run --no-project --with-requirements …`; `make run` defaults to all
+   locations; `install` writes a working wrapper. All targets exercised.
+5. **Weather types** — fixed: all observed types mapped; unmapped ones log once per type.
+6. **Small issues** — fixed (f-string, duplicate returns, Retry-After capped at 120 s and never past the
+   hard timeout, no sleep after the last attempt). **Extra bug found:** 4xx was retried 5× because
+   `HTTPError` is a `RequestException`; now raises `APIError` immediately.
+7. **Docs** — README, ADR 001 and NOTES.md corrected (paths, uv optional, nonexistent exit codes
+   126/127 removed, coverage now 10 blocks / 11 dates, keepalive section).
+
+Also: tests now run in CI as a separate `tests.yml` workflow (never gates the deploy); tracked
+`tests/__pycache__` removed; `_output/` gitignored.
 
 Quality ideas the user hasn't decided on yet; propose them, don't implement them:
 - gusts and wind direction;
