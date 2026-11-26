@@ -5,3 +5,4 @@ output/
 .pytest_cache/
 .uv/
 uv.lock
+_output/
